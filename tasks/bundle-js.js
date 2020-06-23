@@ -4,7 +4,7 @@ const rollup = require('rollup');
 const rollupPluginCommonjs = require('@rollup/plugin-commonjs');
 const rollupPluginNodeResolve = require('@rollup/plugin-node-resolve').default;
 const rollupPluginReplace = require('@rollup/plugin-replace');
-const rollupPluginTypescript = require('rollup-plugin-typescript2');
+const rollupPluginTypescript = require('@rollup/plugin-typescript');
 const typescript = require('typescript');
 const {getDestDir} = require('./paths');
 const reload = require('./reload');
@@ -88,6 +88,17 @@ const jsEntries = [
     },
 ];
 
+async function getCached(src) {
+    try {
+        const file = `cache/${src.toString().replace(/(.tsx|.ts)/g, '').replace(/\//g, '-')}.json`;
+        console.log(await fs.readFile(file) === undefined ? await fs.readFile(file) : {});
+        return await fs.readFile(file) === undefined ? await fs.readFile(file) : {};
+    } catch (err) {
+        return false;
+    }
+    
+}
+
 async function bundleJS(/** @type {JSEntry} */entry, {debug, watch}) {
     const {src, dest} = entry;
     const bundle = await rollup.rollup({
@@ -98,22 +109,23 @@ async function bundleJS(/** @type {JSEntry} */entry, {debug, watch}) {
             rollupPluginTypescript({
                 typescript,
                 tsconfig: 'src/tsconfig.json',
-                tsconfigOverride: {
-                    compilerOptions: {
-                        removeComments: debug ? false : true,
-                        sourceMap: debug ? true : false,
-                    },
-                },
-                clean: debug ? false : true,
-                cacheRoot: debug ? `${fs.realpathSync(os.tmpdir())}/darkreader_typescript_cache` : null,
+                removeComments: debug ? false : true,
+                sourceMap: debug ? true : false,
             }),
             rollupPluginReplace({
                 '__DEBUG__': debug ? 'true' : 'false',
                 '__PORT__': watch ? String(PORT) : '-1',
                 '__WATCH__': watch ? 'true' : 'false',
             }),
-        ].filter((x) => x)
+        ].filter((x) => x),
+        cache: debug ? await getCached(src) : false,
     });
+    if (debug) {
+        const file = `cache/${src.toString().replace(/(.tsx|.ts)/g, '').replace(/\//g, '-')}.json`;
+        console.log(bundle.cache);
+        await 
+        fs.outputFile(file, JSON.stringify(bundle.cache));
+    }
     entry.watchFiles = bundle.watchFiles;
     await bundle.write({
         file: `${getDestDir({debug})}/${dest}`,
@@ -137,9 +149,12 @@ let watchFiles;
 
 module.exports = createTask(
     'bundle-js',
-    async ({debug, watch}) => await Promise.all(
-        jsEntries.map((entry) => bundleJS(entry, {debug, watch}))
-    ),
+    async ({debug, watch}) => {
+        await Promise.all(
+            jsEntries.map((entry) => bundleJS(entry, {debug, watch}))
+        )
+        fs.w
+    },
 ).addWatcher(
     () => {
         watchFiles = getWatchFiles();
